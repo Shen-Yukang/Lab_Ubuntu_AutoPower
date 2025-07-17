@@ -103,23 +103,48 @@ check_rtc_support() {
 set_wakeup_and_shutdown() {
     local wakeup_time="$1"
     local delay_minutes="$2"
-    
-    # 计算明天的唤醒时间
-    local tomorrow_wakeup=$(date -d "tomorrow $wakeup_time" '+%Y-%m-%d %H:%M:%S')
-    
-    log_message "设置RTC唤醒时间: $tomorrow_wakeup"
+
+    # 计算唤醒时间：如果设置时间已过，则为明天；否则为今天
+    local current_time=$(date '+%H:%M')
+    local target_wakeup
+
+    if [[ "$wakeup_time" > "$current_time" ]]; then
+        # 今天的时间还没到，设置为今天
+        target_wakeup=$(date -d "today $wakeup_time" '+%Y-%m-%d %H:%M:%S')
+        log_message "设置今天的RTC唤醒时间: $target_wakeup"
+    else
+        # 今天的时间已过，设置为明天
+        target_wakeup=$(date -d "tomorrow $wakeup_time" '+%Y-%m-%d %H:%M:%S')
+        log_message "设置明天的RTC唤醒时间: $target_wakeup"
+    fi
     
     # 发送通知
     if [ "$SEND_NOTIFICATION" = "true" ]; then
-        wall "系统将在 $delay_minutes 分钟后关机，明天 $wakeup_time 自动开机"
+        if [[ "$wakeup_time" > "$current_time" ]]; then
+            wall "系统将在 $delay_minutes 分钟后关机，今天 $wakeup_time 自动开机"
+        else
+            wall "系统将在 $delay_minutes 分钟后关机，明天 $wakeup_time 自动开机"
+        fi
     fi
-    
+
     # 等待指定时间
     sleep ${delay_minutes}m
     
     # 使用rtcwake设置唤醒时间并关机
     log_message "使用rtcwake执行关机和唤醒设置"
-    /usr/sbin/rtcwake --mode off --time "$(date -d "$tomorrow_wakeup" +%s)" 2>&1 | tee -a "$LOG_FILE"
+
+    # 手动处理时区问题：rtcwake总是将时间当作UTC处理
+    log_message "本地时间设置: $target_wakeup"
+
+    # 直接使用date命令的UTC转换，更简单可靠
+    local utc_wakeup=$(TZ=UTC date -d "$target_wakeup" '+%Y-%m-%d %H:%M:%S')
+
+    # 获取时区信息用于日志
+    local tz_info=$(date +%z)
+    local tz_offset_hours=$(echo $tz_info | sed 's/[+-]//' | sed 's/\(..\)\(..\)/\1/')
+
+    log_message "转换为UTC时间: $utc_wakeup (时区: $tz_info)"
+    /usr/sbin/rtcwake --mode off --date "$utc_wakeup" 2>&1 | tee -a "$LOG_FILE"
 }
 
 # 测试rtcwake功能
