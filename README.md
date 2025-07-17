@@ -29,6 +29,27 @@ sudo bash install-auto-power.sh
 - 创建日志文件：`/var/log/auto-power.log`
 - 测试RTC功能并设置默认配置
 
+## 新功能特性
+
+### 🆕 自定义关机延迟时间
+现在支持在执行关机时自定义延迟时间，无需修改配置文件：
+
+```bash
+sudo auto-power-manager shutdown 2    # 2分钟后关机
+sudo auto-power-manager shutdown 0    # 立即关机
+sudo auto-power-manager shutdown      # 使用默认延迟时间
+```
+
+### 🔧 修复cron环境PATH问题
+- 修复了cron执行时"rtcwake: command not found"的问题
+- 脚本现在使用完整路径`/usr/sbin/rtcwake`
+- 确保在所有环境下都能正常工作
+
+### 📝 增强的日志记录
+- 记录使用的延迟时间
+- 更详细的错误信息
+- 便于问题排查和监控
+
 ## 基本使用
 
 ### 查看系统状态
@@ -56,8 +77,13 @@ sudo auto-power-manager set-wakeup 09:30
 # 测试RTC唤醒功能
 sudo auto-power-manager test-rtc
 
-# 手动执行关机流程（测试用）
+# 手动执行关机流程（使用默认5分钟延迟）
 sudo auto-power-manager shutdown
+
+# 自定义延迟时间执行关机流程
+sudo auto-power-manager shutdown 2    # 2分钟后关机
+sudo auto-power-manager shutdown 0    # 立即关机
+sudo auto-power-manager shutdown 1    # 1分钟后关机
 ```
 
 ## 完整命令列表
@@ -69,7 +95,7 @@ sudo auto-power-manager shutdown
 | `disable` | 禁用自动开关机 | 是 |
 | `set-shutdown <时间>` | 设置关机时间 | 是 |
 | `set-wakeup <时间>` | 设置开机时间 | 是 |
-| `shutdown` | 执行关机流程 | 是 |
+| `shutdown [延迟分钟]` | 执行关机流程，可选指定延迟时间 | 是 |
 | `update-cron` | 更新cron任务 | 是 |
 | `test-rtc` | 测试rtcwake功能 | 是 |
 | `install` | 重新安装/初始化 | 是 |
@@ -101,10 +127,27 @@ SHUTDOWN_DELAY=5
 
 ## 工作原理
 
+### 整体流程
 1. **定时任务**：系统使用cron在指定时间触发关机流程
-2. **RTC设置**：关机前使用`rtcwake`设置硬件时钟唤醒时间
-3. **自动关机**：系统执行关机并进入休眠状态
-4. **自动开机**：硬件RTC在设定时间唤醒系统
+2. **延迟等待**：可配置的关机前等待时间（默认5分钟，支持自定义）
+3. **用户通知**：通过wall命令通知所有登录用户即将关机
+4. **RTC设置**：关机前使用`rtcwake`设置硬件时钟唤醒时间
+5. **自动关机**：系统执行关机并进入休眠状态
+6. **自动开机**：硬件RTC在设定时间唤醒系统
+
+### 详细执行步骤
+```
+01:30 → cron触发 → 加载配置 → 计算明天开机时间 → 发送通知
+  ↓
+等待延迟时间(默认5分钟) → 设置RTC唤醒 → 执行关机
+  ↓
+硬件RTC唤醒 → 09:30自动开机 → 系统正常启动
+```
+
+### 时间计算逻辑
+- **关机时间**：每天01:30（可配置）
+- **开机时间**：第二天09:30（可配置）
+- **延迟时间**：关机前等待5分钟（可自定义）
 
 ## 故障排除
 
@@ -125,23 +168,52 @@ sudo crontab -l | grep auto-power
 
 ### 常见问题
 
-**1. cron任务未设置**
+**1. rtcwake: command not found**
+```bash
+# 检查rtcwake是否安装
+which rtcwake
+
+# 如果未安装，安装util-linux包
+sudo apt-get install util-linux
+
+# 重新安装脚本（已修复PATH问题）
+sudo bash install-auto-power.sh
+```
+
+**2. cron任务未设置**
 ```bash
 sudo auto-power-manager update-cron
 ```
 
-**2. RTC时间错误**
+**3. RTC时间错误**
 ```bash
 sudo hwclock --systohc  # 同步系统时间到RTC
 ```
 
-**3. 权限问题**
+**4. 权限问题**
 确保使用sudo权限运行需要权限的命令
+
+**5. cron环境PATH问题**
+脚本已修复，使用完整路径 `/usr/sbin/rtcwake`
 
 ## 安全测试
 
 在正式使用前，建议进行短时间测试：
 
+### 方法1：使用自定义延迟时间（推荐）
+```bash
+# 设置5分钟后开机
+WAKEUP_TIME=$(date -d "+5 minutes" +%H:%M)
+sudo auto-power-manager set-wakeup $WAKEUP_TIME
+
+# 2分钟后关机测试
+sudo auto-power-manager shutdown 2
+
+# 测试完成后恢复正常设置
+sudo auto-power-manager set-wakeup 09:30
+```
+
+### 方法2：临时修改时间设置
 ```bash
 # 设置2分钟后关机，5分钟后开机
 sudo auto-power-manager set-shutdown $(date -d "+2 minutes" +%H:%M)
@@ -149,6 +221,9 @@ sudo auto-power-manager set-wakeup $(date -d "+5 minutes" +%H:%M)
 
 # 查看状态确认
 auto-power-manager status
+
+# 更新cron任务
+sudo auto-power-manager update-cron
 
 # 测试完成后恢复正常时间
 sudo auto-power-manager set-shutdown 01:30
@@ -195,5 +270,28 @@ sudo rm /var/log/auto-power.log
 # 清理cron任务
 sudo crontab -l | grep -v auto-power | sudo crontab -
 ```
+
+## 更新日志
+
+### v1.1 (2025-07-17)
+**新功能：**
+- ✅ 支持自定义关机延迟时间：`sudo auto-power-manager shutdown [分钟数]`
+- ✅ 增强的帮助文档和使用示例
+
+**修复：**
+- 🔧 修复cron环境下"rtcwake: command not found"问题
+- 🔧 使用完整路径`/usr/sbin/rtcwake`确保兼容性
+- 🔧 改进错误处理和日志记录
+
+**改进：**
+- 📝 更详细的日志记录，包括延迟时间信息
+- 📝 更完善的README文档
+- 📝 增加快速测试方法
+
+### v1.0 (初始版本)
+- 基本的自动开关机功能
+- cron定时任务支持
+- RTC硬件唤醒
+- 配置文件管理
 
 
