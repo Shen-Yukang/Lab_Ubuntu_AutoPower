@@ -146,8 +146,9 @@ SHUTDOWN_DELAY=5
 
 ### 时间计算逻辑
 - **关机时间**：每天01:30（可配置）
-- **开机时间**：第二天09:30（可配置）
+- **开机时间**：智能判断今天/明天的时间（可配置）
 - **延迟时间**：关机前等待5分钟（可自定义）
+- **时区处理**：自动处理UTC和本地时间转换
 
 ## 故障排除
 
@@ -195,6 +196,34 @@ sudo hwclock --systohc  # 同步系统时间到RTC
 
 **5. cron环境PATH问题**
 脚本已修复，使用完整路径 `/usr/sbin/rtcwake`
+
+**6. 时区和RTC时间问题**
+如果自动开机时间不正确（比如延迟4小时），可能是时区设置问题：
+```bash
+# 检查时区设置
+timedatectl status
+
+# 如果显示 "RTC in local TZ: no"，有两种解决方案：
+
+# 方案1：让RTC使用本地时区（推荐）
+sudo timedatectl set-local-rtc 1
+
+# 方案2：脚本已自动处理时区转换
+# 正常情况下脚本会自动转换，无需手动操作
+```
+
+**7. 自动开机失败**
+```bash
+# 检查BIOS设置
+# 进入BIOS/UEFI，启用以下功能：
+# - "Wake on RTC" 或 "RTC Alarm"
+# - "Resume by Alarm" 或 "Auto Power On"
+# - "Power Management" 相关设置
+
+# 检查硬件支持
+dmesg | grep -i rtc
+cat /proc/acpi/wakeup
+```
 
 ## 安全测试
 
@@ -281,6 +310,8 @@ sudo crontab -l | grep -v auto-power | sudo crontab -
 **修复：**
 - 🔧 修复cron环境下"rtcwake: command not found"问题
 - 🔧 使用完整路径`/usr/sbin/rtcwake`确保兼容性
+- 🔧 修复时区处理问题，确保RTC唤醒时间正确
+- 🔧 智能日期计算：自动判断今天/明天的开机时间
 - 🔧 改进错误处理和日志记录
 
 **改进：**
